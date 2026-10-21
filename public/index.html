@@ -1,0 +1,105 @@
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ふっとばしバトル</title>
+<style>
+body{font-family:sans-serif;text-align:center;background:#17233c;color:white;margin:20px}
+input,button{font-size:16px;padding:10px;margin:4px;border-radius:8px}
+button{cursor:pointer;background:#79e3c0;border:0}
+canvas{max-width:100%;background:#9de1f5;border:3px solid white;border-radius:10px}
+#status{color:#8fffdc}
+</style>
+</head>
+<body>
+<h1>💥 ふっとばしバトル</h1>
+<p>部屋を作って友達と対戦しよう！</p>
+<input id="name" placeholder="プレイヤー名" value="プレイヤー">
+<button id="create">部屋を作る</button>
+<input id="code" placeholder="部屋コード" maxlength="4">
+<button id="join">部屋に参加</button>
+<p id="status">接続中...</p>
+<div id="players"></div>
+<canvas id="game" width="900" height="500"></canvas>
+<p>A/D または ←/→：移動　W/↑/Space：ジャンプ　F：パンチ</p>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const socket=io();
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+const status=document.getElementById("status");
+const players={};
+let myId=null, roomCode=null;
+let x=200,y=300,vy=0,facing=1,onGround=false;
+const keys={};
+
+socket.on("connect",()=>{myId=socket.id;status.textContent="サーバーに接続しました。部屋を作るか参加してね。";});
+socket.on("connect_error",()=>{status.textContent="接続できません。サーバーを起動してね。";});
+
+document.getElementById("create").onclick=()=>{
+socket.emit("createRoom",document.getElementById("name").value,result=>{
+if(!result.ok)return status.textContent="部屋を作れませんでした";
+roomCode=result.code;document.getElementById("code").value=roomCode;
+status.textContent="部屋コード："+roomCode+"（友達に教えてね）";
+});
+};
+
+document.getElementById("join").onclick=()=>{
+socket.emit("joinRoom",{code:document.getElementById("code").value,name:document.getElementById("name").value},result=>{
+if(!result.ok)return status.textContent=result.error;
+roomCode=result.code;status.textContent="部屋 "+roomCode+" に参加しました";
+});
+};
+
+socket.on("roomUpdate",room=>{
+document.getElementById("players").textContent=
+"参加者："+Object.values(room.players).map(p=>p.name).join("、");
+for(const id in room.players){
+if(!players[id])players[id]={x:room.players[id].x,y:room.players[id].y,name:room.players[id].name};
+}
+});
+
+socket.on("playerMoved",p=>{
+if(players[p.id]){players[p.id].x=p.x;players[p.id].y=p.y;}
+else players[p.id]={x:p.x,y:p.y,name:"プレイヤー"};
+});
+socket.on("playerLeft",id=>delete players[id]);
+
+window.addEventListener("keydown",e=>{
+keys[e.code]=true;
+if(["ArrowLeft","ArrowRight","ArrowUp","Space"].includes(e.code))e.preventDefault();
+});
+window.addEventListener("keyup",e=>keys[e.code]=false);
+
+function loop(){
+if(myId){
+if(keys.KeyA||keys.ArrowLeft){x-=4;facing=-1;}
+if(keys.KeyD||keys.ArrowRight){x+=4;facing=1;}
+if((keys.KeyW||keys.ArrowUp||keys.Space)&&onGround){vy=-12;onGround=false;}
+}
+vy+=0.6;y+=vy;
+if(y>=400){y=400;vy=0;onGround=true;}
+x=Math.max(20,Math.min(880,x));
+if(roomCode&&myId){
+if(!players[myId])players[myId]={x,y,name:document.getElementById("name").value};
+players[myId].x=x;players[myId].y=y;
+socket.emit("playerMove",{x,y});
+}
+ctx.clearRect(0,0,900,500);
+ctx.fillStyle="#9de1f5";ctx.fillRect(0,0,900,500);
+ctx.fillStyle="#53bb70";ctx.fillRect(80,440,740,18);
+for(const id in players){
+const p=players[id];
+ctx.fillStyle=id===myId?"#ffcf5a":"#ff718b";
+ctx.beginPath();ctx.arc(p.x,p.y-18,18,0,Math.PI*2);ctx.fill();
+ctx.fillStyle="#14233b";ctx.font="15px sans-serif";ctx.textAlign="center";
+ctx.fillText(p.name||"プレイヤー",p.x,p.y-44);
+}
+requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
